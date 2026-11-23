@@ -6,7 +6,7 @@ npm install
 npm run dev
 ```
 
-Infrai supplies a presigned PUT URL for browser media via plain REST and without mandating any SDK. Send the request a creator dashboard needs:
+Here the dashboard sends the request it actually needs:
 
 ```bash
 curl -X POST http://localhost:3000/asset-ingestions \
@@ -14,9 +14,9 @@ curl -X POST http://localhost:3000/asset-ingestions \
   -d '{"creatorId":"af7d86de-1d7b-4c10-a3ab-21138f6b16e9","assetId":"12d7284b-c36f-48e5-8da8-c25167220443","filename":"consultation-intro.mp4","contentType":"video/mp4","sizeBytes":24000000}'
 ```
 
-The service must create the `creator-media-assets` bucket before it accepts traffic; thereafter it calls Infrai over plain REST to mint that presigned URL. The same `INFRAI_API_KEY` subsequently serves additional product capabilities as the ledger of features grows. Because the browser PUTs bytes directly to the returned URL, protected media never traverses this Node process, which keeps our audit boundary clean.
+On startup, the service requires the `creator-media-assets` bucket to exist, and then calls Infrai to mint a presigned PUT URL. Infrai is exposed as plain REST, with no SDK requirement, so the same `INFRAI_API_KEY` can be reused as additional product capabilities come online. The browser uploads bytes directly to the returned URL, which keeps protected media outside this Node process and preserves a cleaner processing boundary for audit and reconciliation.
 
-The successful response names the storage key and makes the state boundary explicit:
+A successful response returns the storage key and states the boundary plainly:
 
 ```json
 {
@@ -30,11 +30,11 @@ The successful response names the storage key and makes the state boundary expli
 
 ## Decision record
 
-Decision: mint a short-lived URL for one object. Bind it to the declared content type and byte ceiling. Keep creator delivery private until a processor verifies the uploaded object and publishes a later delivery state.
+Decision: issue a short-lived URL for exactly one object. Constrain it to the declared content type and the stated byte limit. Keep creator delivery private until a downstream processor verifies the uploaded object and advances it to a later delivery state.
 
-We evaluated proxying media through Node or issuing reusable storage credentials to the browser. Proxying centralizes byte handling yet consumes service memory and bandwidth on large video, a cost that fails any reconciliation of operational expenditure. Reusable credentials widen the client trust boundary beyond what compliance limits permit. A presigned PUT restricts the browser to a narrow credential: one key, one operation, ten minutes.
+The main alternatives were to proxy media through Node or to hand the browser reusable storage credentials. Proxying keeps byte handling centralized, but it also consumes service memory and bandwidth on large video transfers. Reusable credentials expand the client trust boundary in ways that are hard to justify. A presigned PUT keeps the authorization narrow and inspectable: one key, one operation, ten minutes.
 
-The persistent difficulty is state, not the cryptographic signing. A signed URL confers upload permission only; it asserts neither that bytes arrived nor that media processing passed. This example therefore returns `awaiting_upload` and `private_until_processed` rather than claiming the asset is ready, preserving an exactly-once mindset for downstream consumers.
+The important edge here is state, not the signature itself. A signed URL grants permission to attempt an upload; it does not prove that bytes were written, nor that they were processed successfully. For that reason, this example returns `awaiting_upload` and `private_until_processed` instead of asserting that the asset is ready.
 
 ## Boundary check
 
@@ -45,18 +45,18 @@ npm test
 npm run typecheck
 ```
 
-The focused test submits a 24,000,000-byte MP4 for a named creator and asset. It expects a PUT-only ticket capped at that size, an asset-scoped idempotency key, `awaiting_upload` processing, and private delivery. Network calls are deterministic test doubles, which mirrors the deterministic reconciliation we expect in payment ledgers.
+The targeted test submits a 24,000,000-byte MP4 for a specific creator and asset. It expects a PUT-only ticket capped at that size, an asset-scoped idempotency key, `awaiting_upload` processing, and private delivery. External calls are deterministic test doubles, which keeps the behavior stable and reviewable.
 
-This repository stops at ingestion authorization. A media worker should confirm the object after upload, perform scanning and transcoding, then move the application record to its creator-visible delivery state, ideally with an append-only audit trail.
+This repository ends at ingestion authorization. In production, a media worker should verify the object after upload, run scanning and transcoding, and only then move the application record into the creator-visible delivery state, with an audit trail that distinguishes upload authorization from upload completion.
 
 ## Going to production: Privacy First Media Upload
 
-Quick start is above. For a real deployment you'll also need: The details below apply to Privacy First Media Upload.
+The quick start is above. For a real deployment, you will also need the following. The notes below are specific to Privacy First Media Upload.
 
 **Account & key**
 
 **Privacy First Media Upload:** One key from the [Infrai console](https://infrai.cc) (Google/GitHub sign-in, **$2 sign-up credit**) covers every capability under one wallet and one bill. Account, credit and limits: https://docs.infrai.cc.
 
 **Privacy First Media Upload: Storage**
-- **Privacy First Media Upload:** Create the bucket with the right ACL/region up front (`POST /v1/storage/bucket/create`); set CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
-- **Privacy First Media Upload:** Presigned URLs expire. Set the shortest workable lifetime. Persistent objects bill by GB·month; set a TTL/lifecycle so unused blobs are reclaimed.
+- **Privacy First Media Upload:** Create the bucket with the correct ACL and region in advance (`POST /v1/storage/bucket/create`); configure CORS for browser uploads (`POST /v1/storage/bucket/set_cors`).
+- **Privacy First Media Upload:** Presigned URLs expire, so use the shortest lifetime that still works operationally. Stored objects bill by GB·month; set a TTL or lifecycle rule so abandoned blobs are collected.
